@@ -172,20 +172,50 @@ class SSHConfigParser {
     const homeDir = homedir();
     this.configPath = configPath || join(homeDir, '.ssh', 'config');
     this.knownHostsPath = join(homeDir, '.ssh', 'known_hosts');
+    this.lastError = null; // Store last error for diagnostics
   }
 
   async parseConfig() {
+    const { existsSync } = require('fs');
+    this.lastError = null;
+    
+    // Check if file exists first
+    if (!existsSync(this.configPath)) {
+      debugLog(`SSH config file not found: ${this.configPath} (this is normal if you don't have one)\n`);
+      return [];
+    }
+    
     try {
       const content = await readFile(this.configPath, 'utf-8');
       const config = sshConfig.parse(content);
       return this.extractHostsFromConfig(config, this.configPath);
     } catch (error) {
-      debugLog(`Error reading SSH config: ${error.message}\n`);
+      // Distinguish between different error types
+      if (error.code === 'EACCES') {
+        this.lastError = { type: 'permission', message: `Permission denied reading SSH config: ${this.configPath}` };
+        debugLog(`[WARNING] ${this.lastError.message}\n`);
+      } else if (error.name === 'SyntaxError' || error.message.includes('parse')) {
+        this.lastError = { type: 'parse', message: `SSH config syntax error in ${this.configPath}: ${error.message}` };
+        debugLog(`[WARNING] ${this.lastError.message}\n`);
+      } else {
+        this.lastError = { type: 'unknown', message: `Error reading SSH config: ${error.message}` };
+        debugLog(`[WARNING] ${this.lastError.message}\n`);
+      }
       return [];
     }
   }
 
   async processIncludeDirectives(configPath) {
+    const { existsSync } = require('fs');
+    
+    // Check if file exists first
+    if (!existsSync(configPath)) {
+      if (configPath === this.configPath) {
+        debugLog(`SSH config file not found: ${configPath} (this is normal if you don't have one)\n`);
+      }
+      return [];
+    }
+    
     try {
       const content = await readFile(configPath, 'utf-8');
       const config = sshConfig.parse(content);
@@ -212,7 +242,14 @@ class SSHConfigParser {
       
       return hosts;
     } catch (error) {
-      debugLog(`Error processing config file ${configPath}: ${error.message}\n`);
+      // Provide more specific error messages
+      if (error.code === 'EACCES') {
+        debugLog(`[WARNING] Permission denied reading config file: ${configPath}\n`);
+      } else if (error.name === 'SyntaxError' || error.message.includes('parse')) {
+        debugLog(`[WARNING] Syntax error in SSH config file ${configPath}: ${error.message}\n`);
+      } else {
+        debugLog(`[WARNING] Error processing config file ${configPath}: ${error.message}\n`);
+      }
       return [];
     }
   }
@@ -299,20 +336,33 @@ class SSHConfigParser {
   }
 
   async parseKnownHosts() {
+    const { existsSync } = require('fs');
+    
+    // Check if file exists first
+    if (!existsSync(this.knownHostsPath)) {
+      debugLog(`known_hosts file not found: ${this.knownHostsPath} (this is normal for new systems)\n`);
+      return [];
+    }
+    
     try {
       const content = await readFile(this.knownHostsPath, 'utf-8');
       const knownHosts = content
         .split('\n')
-        .filter(line => line.trim() !== '')
+        .filter(line => line.trim() !== '' && !line.startsWith('#')) // Skip empty lines and comments
         .map(line => {
           // Format: hostname[,hostname2...] key-type public-key
           const parts = line.split(' ')[0];
           return parts.split(',')[0];
-        });
+        })
+        .filter(host => host); // Remove any empty entries
 
       return knownHosts;
     } catch (error) {
-      debugLog(`Error reading known_hosts file: ${error.message}\n`);
+      if (error.code === 'EACCES') {
+        debugLog(`[WARNING] Permission denied reading known_hosts: ${this.knownHostsPath}\n`);
+      } else {
+        debugLog(`[WARNING] Error reading known_hosts file: ${error.message}\n`);
+      }
       return [];
     }
   }
