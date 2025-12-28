@@ -82,6 +82,78 @@ function resolveSshConfigPath() {
   return resolvePath(process.cwd(), expanded);
 }
 
+function resolveSshGroupsPath(sshConfigPath) {
+  // Precedence: CLI flag > env var > default next to config
+  const cliValue = getCliArgValue('--ssh-groups');
+  const envValue = process.env.SSH_GROUPS_PATH;
+  const rawValue = cliValue || envValue;
+
+  if (!rawValue) {
+    return `${sshConfigPath}.groups.json`;
+  }
+
+  const expanded = expandUserPath(rawValue);
+  if (isAbsolute(expanded)) {
+    return expanded;
+  }
+  return resolvePath(process.cwd(), expanded);
+}
+
+async function loadGroupsFile(groupsPath) {
+  try {
+    const content = await readFile(groupsPath, 'utf-8');
+    const parsed = JSON.parse(content);
+
+    // Expected format: { "group-name": ["host1", "host2"] }
+    const groups = {};
+    if (parsed && typeof parsed === 'object') {
+      for (const [groupName, hosts] of Object.entries(parsed)) {
+        if (!Array.isArray(hosts)) continue;
+        groups[groupName] = hosts.filter(h => typeof h === 'string' && h.trim() !== '');
+      }
+    }
+    return groups;
+  } catch (error) {
+    // Missing or invalid file should not break the server
+    debugLog(`Groups file not loaded (${groupsPath}): ${error.message}\n`);
+    return {};
+  }
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const out = [];
+  for (const v of values) {
+    if (typeof v !== 'string') continue;
+    const s = v.trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const concurrency = Math.max(1, Math.floor(limit || 1));
+
+  async function runner() {
+    while (true) {
+      const current = nextIndex;
+      nextIndex += 1;
+      if (current >= items.length) return;
+      results[current] = await worker(items[current], current);
+    }
+  }
+
+  const runners = [];
+  const runnerCount = Math.min(concurrency, items.length);
+  for (let i = 0; i < runnerCount; i++) runners.push(runner());
+  await Promise.all(runners);
+  return results;
+}
+
 // Debug logging function - only outputs in non-silent mode
 function debugLog(message) {
   if (!SILENT_MODE) {
@@ -281,6 +353,71 @@ class SSHConfigParser {
 class SSHClient {
   constructor(options = {}) {
     this.configParser = new SSHConfigParser(options.configPath);
+    this.groupsPath = options.groupsPath;
+    this.groups = options.groups || {};
+  }
+
+  async reloadGroups() {
+    if (!this.groupsPath) {
+      this.groups = {};
+      return this.groups;
+    }
+    this.groups = await loadGroupsFile(this.groupsPath);
+    return this.groups;
+  }
+
+  async listHostGroups() {
+    // Always attempt to refresh so edits take effect without restart
+    await this.reloadGroups();
+    return this.groups;
+  }
+
+  async runBatchCommand(hosts, command, options = {}) {
+    const hostList = uniqueStrings(hosts || []);
+    if (hostList.length === 0) {
+      return {
+        results: [],
+        success: false,
+        message: 'No hosts provided'
+      };
+    }
+    if (typeof command !== 'string' || command.trim() === '') {
+      return {
+        results: [],
+        success: false,
+        message: 'No command provided'
+      };
+    }
+
+    const concurrency = Number.isFinite(options.concurrency) ? options.concurrency : 5;
+    const perHostTimeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 30000;
+
+    const results = await runWithConcurrency(hostList, concurrency, async (hostAlias) => {
+      const result = await this.runRemoteCommand(hostAlias, command);
+      return {
+        host: hostAlias,
+        ...result
+      };
+    });
+
+    const success = results.every(r => r && r.code === 0);
+    return {
+      results,
+      success
+    };
+  }
+
+  async runGroupCommand(group, command, options = {}) {
+    await this.reloadGroups();
+    const groupName = typeof group === 'string' ? group.trim() : '';
+    if (!groupName) {
+      return { results: [], success: false, message: 'No group provided' };
+    }
+    const hosts = this.groups[groupName] || [];
+    if (!Array.isArray(hosts) || hosts.length === 0) {
+      return { results: [], success: false, message: `Group not found or empty: ${groupName}` };
+    }
+    return await this.runBatchCommand(hosts, command, options);
   }
 
   async listKnownHosts() {
@@ -364,6 +501,104 @@ class SSHClient {
     }
   }
 
+  /**
+   * Sync a local file to multiple remote hosts
+   * Supports both scp and rsync modes
+   */
+  async syncFile(localPath, remotePath, hosts, options = {}) {
+    const hostList = uniqueStrings(hosts || []);
+    if (hostList.length === 0) {
+      return {
+        results: [],
+        success: false,
+        message: 'No hosts provided'
+      };
+    }
+    if (!localPath || typeof localPath !== 'string') {
+      return {
+        results: [],
+        success: false,
+        message: 'No local path provided'
+      };
+    }
+    if (!remotePath || typeof remotePath !== 'string') {
+      return {
+        results: [],
+        success: false,
+        message: 'No remote path provided'
+      };
+    }
+
+    const useRsync = options.useRsync === true;
+    const concurrency = Number.isFinite(options.concurrency) ? options.concurrency : 5;
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 120000; // 2 min default for file sync
+
+    const results = await runWithConcurrency(hostList, concurrency, async (hostAlias) => {
+      try {
+        if (useRsync) {
+          // rsync mode: -avz for archive, verbose, compress
+          const rsyncArgs = ['-avz', '--progress'];
+          if (options.delete) {
+            rsyncArgs.push('--delete');
+          }
+          rsyncArgs.push(localPath, `${hostAlias}:${remotePath}`);
+          
+          debugLog(`Executing: rsync ${rsyncArgs.join(' ')}\n`);
+          const { stdout, stderr } = await execFileAsync('rsync', rsyncArgs, { timeout: timeoutMs });
+          return {
+            host: hostAlias,
+            success: true,
+            stdout: stdout || '',
+            stderr: stderr || ''
+          };
+        } else {
+          // scp mode
+          debugLog(`Executing: scp ${localPath} ${hostAlias}:${remotePath}\n`);
+          const { stdout, stderr } = await execFileAsync('scp', ['-r', localPath, `${hostAlias}:${remotePath}`], { timeout: timeoutMs });
+          return {
+            host: hostAlias,
+            success: true,
+            stdout: stdout || '',
+            stderr: stderr || ''
+          };
+        }
+      } catch (error) {
+        debugLog(`Error syncing file to ${hostAlias}: ${error.message}\n`);
+        return {
+          host: hostAlias,
+          success: false,
+          error: error.message,
+          stdout: error.stdout || '',
+          stderr: error.stderr || ''
+        };
+      }
+    });
+
+    const allSuccess = results.every(r => r && r.success);
+    return {
+      results,
+      success: allSuccess,
+      successCount: results.filter(r => r && r.success).length,
+      failCount: results.filter(r => r && !r.success).length
+    };
+  }
+
+  /**
+   * Sync a local file to all hosts in a group
+   */
+  async syncFileToGroup(localPath, remotePath, group, options = {}) {
+    await this.reloadGroups();
+    const groupName = typeof group === 'string' ? group.trim() : '';
+    if (!groupName) {
+      return { results: [], success: false, message: 'No group provided' };
+    }
+    const hosts = this.groups[groupName] || [];
+    if (!Array.isArray(hosts) || hosts.length === 0) {
+      return { results: [], success: false, message: `Group not found or empty: ${groupName}` };
+    }
+    return await this.syncFile(localPath, remotePath, hosts, options);
+  }
+
   async runCommandBatch(hostAlias, commands) {
     try {
       const results = [];
@@ -403,8 +638,16 @@ async function main() {
     // Create an instance of the SSH client
     debugLog("Initializing SSH client...\n");
     const sshConfigPath = resolveSshConfigPath();
+    const sshGroupsPath = resolveSshGroupsPath(sshConfigPath);
     debugLog(`Using SSH config: ${sshConfigPath}\n`);
-    const sshClient = new SSHClient({ configPath: sshConfigPath });
+    debugLog(`Using groups file: ${sshGroupsPath}\n`);
+
+    const initialGroups = await loadGroupsFile(sshGroupsPath);
+    const sshClient = new SSHClient({
+      configPath: sshConfigPath,
+      groupsPath: sshGroupsPath,
+      groups: initialGroups
+    });
 
     debugLog("Creating MCP server...\n");
     // Create an MCP server
@@ -537,6 +780,145 @@ async function main() {
               required: ["hostAlias", "commands"],
             },
           },
+          {
+            name: "runBatchCommand",
+            description: "Executes the same shell command across multiple SSH hosts and returns aggregated results",
+            inputSchema: {
+              type: "object",
+              properties: {
+                hosts: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "List of SSH host aliases",
+                },
+                command: {
+                  type: "string",
+                  description: "The shell command to execute on each host",
+                },
+                concurrency: {
+                  type: "number",
+                  description: "Max number of hosts to run in parallel (default: 5)",
+                },
+                timeoutMs: {
+                  type: "number",
+                  description: "Per-host SSH command timeout in ms (default: 30000)",
+                },
+              },
+              required: ["hosts", "command"],
+            },
+          },
+          {
+            name: "listHostGroups",
+            description: "Lists host groups loaded from the groups JSON file (default: <ssh-config>.groups.json; overridable via --ssh-groups or SSH_GROUPS_PATH)",
+            inputSchema: {
+              type: "object",
+              properties: {},
+              required: [],
+            },
+          },
+          {
+            name: "runGroupCommand",
+            description: "Executes a shell command across all hosts in a named group",
+            inputSchema: {
+              type: "object",
+              properties: {
+                group: {
+                  type: "string",
+                  description: "Group name from the groups file",
+                },
+                command: {
+                  type: "string",
+                  description: "The shell command to execute on each host in the group",
+                },
+                concurrency: {
+                  type: "number",
+                  description: "Max number of hosts to run in parallel (default: 5)",
+                },
+                timeoutMs: {
+                  type: "number",
+                  description: "Per-host SSH command timeout in ms (default: 30000)",
+                },
+              },
+              required: ["group", "command"],
+            },
+          },
+          {
+            name: "syncFile",
+            description: "Sync a local file or directory to multiple remote SSH hosts (supports scp or rsync)",
+            inputSchema: {
+              type: "object",
+              properties: {
+                localPath: {
+                  type: "string",
+                  description: "Path to the local file or directory to sync",
+                },
+                remotePath: {
+                  type: "string",
+                  description: "Destination path on the remote hosts",
+                },
+                hosts: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "List of SSH host aliases to sync to",
+                },
+                useRsync: {
+                  type: "boolean",
+                  description: "Use rsync instead of scp (default: false)",
+                },
+                delete: {
+                  type: "boolean",
+                  description: "When using rsync, delete files on remote that don't exist locally (default: false)",
+                },
+                concurrency: {
+                  type: "number",
+                  description: "Max number of hosts to sync in parallel (default: 5)",
+                },
+                timeoutMs: {
+                  type: "number",
+                  description: "Per-host sync timeout in ms (default: 120000)",
+                },
+              },
+              required: ["localPath", "remotePath", "hosts"],
+            },
+          },
+          {
+            name: "syncFileToGroup",
+            description: "Sync a local file or directory to all hosts in a named group",
+            inputSchema: {
+              type: "object",
+              properties: {
+                localPath: {
+                  type: "string",
+                  description: "Path to the local file or directory to sync",
+                },
+                remotePath: {
+                  type: "string",
+                  description: "Destination path on the remote hosts",
+                },
+                group: {
+                  type: "string",
+                  description: "Group name from the groups file",
+                },
+                useRsync: {
+                  type: "boolean",
+                  description: "Use rsync instead of scp (default: false)",
+                },
+                delete: {
+                  type: "boolean",
+                  description: "When using rsync, delete files on remote that don't exist locally (default: false)",
+                },
+                concurrency: {
+                  type: "number",
+                  description: "Max number of hosts to sync in parallel (default: 5)",
+                },
+                timeoutMs: {
+                  type: "number",
+                  description: "Per-host sync timeout in ms (default: 120000)",
+                },
+              },
+              required: ["localPath", "remotePath", "group"],
+            },
+          },
         ],
       };
     });
@@ -609,6 +991,75 @@ async function main() {
             const result = await sshClient.runCommandBatch(
               args.hostAlias,
               args.commands
+            );
+            return {
+              content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            };
+          }
+
+          case "runBatchCommand": {
+            const result = await sshClient.runBatchCommand(
+              args.hosts,
+              args.command,
+              {
+                concurrency: args.concurrency,
+                timeoutMs: args.timeoutMs
+              }
+            );
+            return {
+              content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            };
+          }
+
+          case "listHostGroups": {
+            const groups = await sshClient.listHostGroups();
+            return {
+              content: [{ type: "text", text: JSON.stringify(groups, null, 2) }],
+            };
+          }
+
+          case "runGroupCommand": {
+            const result = await sshClient.runGroupCommand(
+              args.group,
+              args.command,
+              {
+                concurrency: args.concurrency,
+                timeoutMs: args.timeoutMs
+              }
+            );
+            return {
+              content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            };
+          }
+
+          case "syncFile": {
+            const result = await sshClient.syncFile(
+              args.localPath,
+              args.remotePath,
+              args.hosts,
+              {
+                useRsync: args.useRsync,
+                delete: args.delete,
+                concurrency: args.concurrency,
+                timeoutMs: args.timeoutMs
+              }
+            );
+            return {
+              content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            };
+          }
+
+          case "syncFileToGroup": {
+            const result = await sshClient.syncFileToGroup(
+              args.localPath,
+              args.remotePath,
+              args.group,
+              {
+                useRsync: args.useRsync,
+                delete: args.delete,
+                concurrency: args.concurrency,
+                timeoutMs: args.timeoutMs
+              }
             );
             return {
               content: [{ type: "text", text: JSON.stringify(result, null, 2) }],

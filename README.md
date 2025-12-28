@@ -40,6 +40,59 @@ npx @aiondadotcom/mcp-ssh --ssh-config /path/to/your/ssh_config
 SSH_CONFIG_PATH=/path/to/your/ssh_config npx @aiondadotcom/mcp-ssh
 ```
 
+### Batch Execution (Multiple Hosts)
+
+When you manage many servers, you can run the same command across multiple hosts and get aggregated results via the MCP tool:
+
+- Tool: `runBatchCommand`
+- Args: `hosts: string[]`, `command: string`, optional `concurrency`, `timeoutMs`
+
+### Host Grouping (Does NOT Modify SSH Config)
+
+To keep your SSH config fully standard and portable, grouping is implemented via a separate JSON file (no non-standard SSH directives required).
+
+- Default groups file path: `<ssh-config>.groups.json`
+- Override with:
+  - `--ssh-groups /path/to/groups.json`
+  - `SSH_GROUPS_PATH=/path/to/groups.json`
+
+Example groups file:
+
+```json
+{
+  "web-servers": ["web1", "web2"],
+  "db-servers": ["db1"]
+}
+```
+
+Related tools:
+
+- `listHostGroups`
+- `runGroupCommand` (args: `group`, `command`, optional `concurrency`, `timeoutMs`)
+
+### File Sync / Distribution
+
+Distribute local files or directories to multiple remote servers in one command.
+
+**Tools:**
+
+- `syncFile` - Sync to a list of hosts
+  - Args: `localPath`, `remotePath`, `hosts: string[]`
+  - Optional: `useRsync` (default: false), `delete` (rsync only), `concurrency`, `timeoutMs`
+- `syncFileToGroup` - Sync to all hosts in a named group
+  - Args: `localPath`, `remotePath`, `group`
+  - Optional: same as above
+
+**Examples:**
+
+```
+# Distribute a config file to web servers
+syncFile("/local/nginx.conf", "/etc/nginx/nginx.conf", ["web1", "web2"])
+
+# Use rsync for a directory with delete
+syncFileToGroup("/local/app/", "/opt/app/", "web-servers", { useRsync: true, delete: true })
+```
+
 #### Manual Claude Desktop Configuration
 
 To use this MCP server with Claude Desktop using manual configuration, add the following to your MCP settings file:
@@ -52,7 +105,13 @@ To use this MCP server with Claude Desktop using manual configuration, add the f
   "mcpServers": {
     "mcp-ssh": {
       "command": "npx",
-      "args": ["@aiondadotcom/mcp-ssh", "--ssh-config", "/path/to/your/ssh_config"]
+      "args": [
+        "@aiondadotcom/mcp-ssh",
+        "--ssh-config",
+        "/path/to/your/ssh_config",
+        "--ssh-groups",
+        "/path/to/your/ssh_config.groups.json"
+      ]
     }
   }
 }
