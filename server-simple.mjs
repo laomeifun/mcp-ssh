@@ -10,7 +10,7 @@
 // Import required Node.js modules
 import { homedir } from 'os';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { join, resolve as resolvePath, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 
@@ -28,6 +28,60 @@ const execFileAsync = promisify(execFile);
 // Silent mode for MCP clients - disable debug output when used as MCP server
 const SILENT_MODE = process.env.MCP_SILENT === 'true' || process.argv.includes('--silent');
 
+function getCliArgValue(flagName) {
+  const argv = process.argv;
+
+  // Supports:
+  //   --flag value
+  //   --flag=value
+  //   --flagValue is NOT supported intentionally
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === flagName) {
+      const value = argv[i + 1];
+      if (!value || value.startsWith('--')) {
+        throw new Error(`Missing value for ${flagName}`);
+      }
+      return value;
+    }
+    if (arg.startsWith(flagName + '=')) {
+      const value = arg.slice(flagName.length + 1);
+      if (!value) {
+        throw new Error(`Missing value for ${flagName}`);
+      }
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function expandUserPath(maybePath) {
+  if (!maybePath) return maybePath;
+  if (maybePath === '~') return homedir();
+  if (maybePath.startsWith('~/')) {
+    return join(homedir(), maybePath.slice(2));
+  }
+  return maybePath;
+}
+
+function resolveSshConfigPath() {
+  // Precedence: CLI flag > env var > default
+  const cliValue = getCliArgValue('--ssh-config');
+  const envValue = process.env.SSH_CONFIG_PATH;
+  const rawValue = cliValue || envValue;
+
+  if (!rawValue) {
+    return join(homedir(), '.ssh', 'config');
+  }
+
+  const expanded = expandUserPath(rawValue);
+  if (isAbsolute(expanded)) {
+    return expanded;
+  }
+  return resolvePath(process.cwd(), expanded);
+}
+
 // Debug logging function - only outputs in non-silent mode
 function debugLog(message) {
   if (!SILENT_MODE) {
@@ -42,9 +96,9 @@ const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontext
 
 // SSH Configuration Parser
 class SSHConfigParser {
-  constructor() {
+  constructor(configPath) {
     const homeDir = homedir();
-    this.configPath = join(homeDir, '.ssh', 'config');
+    this.configPath = configPath || join(homeDir, '.ssh', 'config');
     this.knownHostsPath = join(homeDir, '.ssh', 'known_hosts');
   }
 
@@ -225,8 +279,8 @@ class SSHConfigParser {
 
 // SSH Client Implementation
 class SSHClient {
-  constructor() {
-    this.configParser = new SSHConfigParser();
+  constructor(options = {}) {
+    this.configParser = new SSHConfigParser(options.configPath);
   }
 
   async listKnownHosts() {
@@ -348,7 +402,9 @@ async function main() {
   try {
     // Create an instance of the SSH client
     debugLog("Initializing SSH client...\n");
-    const sshClient = new SSHClient();
+    const sshConfigPath = resolveSshConfigPath();
+    debugLog(`Using SSH config: ${sshConfigPath}\n`);
+    const sshClient = new SSHClient({ configPath: sshConfigPath });
 
     debugLog("Creating MCP server...\n");
     // Create an MCP server
@@ -365,7 +421,7 @@ async function main() {
         tools: [
           {
             name: "listKnownHosts",
-            description: "Returns a consolidated list of all known SSH hosts, prioritizing ~/.ssh/config entries first, then additional hosts from ~/.ssh/known_hosts",
+            description: "Returns a consolidated list of all known SSH hosts, prioritizing SSH config entries first (default ~/.ssh/config, overridable via --ssh-config or SSH_CONFIG_PATH), then additional hosts from ~/.ssh/known_hosts",
             inputSchema: {
               type: "object",
               properties: {},

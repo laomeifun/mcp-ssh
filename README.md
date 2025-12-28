@@ -24,6 +24,22 @@ The easiest way to install MCP SSH Agent is through the Desktop Extension (.dxt)
 npx @aiondadotcom/mcp-ssh
 ```
 
+### Use a Custom SSH Config File
+
+By default, the server reads your SSH hosts from `~/.ssh/config`. If you maintain a project-specific SSH config (recommended when you have many servers), you can point MCP SSH Agent at that file.
+
+**Option A: CLI flag (highest priority)**
+
+```bash
+npx @aiondadotcom/mcp-ssh --ssh-config /path/to/your/ssh_config
+```
+
+**Option B: Environment variable**
+
+```bash
+SSH_CONFIG_PATH=/path/to/your/ssh_config npx @aiondadotcom/mcp-ssh
+```
+
 #### Manual Claude Desktop Configuration
 
 To use this MCP server with Claude Desktop using manual configuration, add the following to your MCP settings file:
@@ -36,7 +52,7 @@ To use this MCP server with Claude Desktop using manual configuration, add the f
   "mcpServers": {
     "mcp-ssh": {
       "command": "npx",
-      "args": ["@aiondadotcom/mcp-ssh"]
+      "args": ["@aiondadotcom/mcp-ssh", "--ssh-config", "/path/to/your/ssh_config"]
     }
   }
 }

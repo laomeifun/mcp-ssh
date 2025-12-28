@@ -10,9 +10,9 @@ cd "$(dirname "$0")"
 # Check if we should run in silent mode (for MCP clients)
 if [ "$1" = "--silent" ] || [ "$MCP_SILENT" = "true" ]; then
     # Silent mode - no startup messages
-    MCP_SILENT=true npm start
+    MCP_SILENT=true npm start -- "$@"
 else
     # Normal mode with startup messages
     echo "Starting MCP SSH Agent..."
-    npm start
+    npm start -- "$@"
 fi

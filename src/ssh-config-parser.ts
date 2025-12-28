@@ -8,9 +8,9 @@ export class SSHConfigParser {
   private configPath: string;
   private knownHostsPath: string;
 
-  constructor() {
+  constructor(configPath?: string) {
     const homeDir = homedir();
-    this.configPath = join(homeDir, '.ssh', 'config');
+    this.configPath = configPath || join(homeDir, '.ssh', 'config');
     this.knownHostsPath = join(homeDir, '.ssh', 'known_hosts');
   }
 

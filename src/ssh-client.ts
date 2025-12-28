@@ -6,9 +6,9 @@ export class SSHClient {
   private ssh: NodeSSH;
   private configParser: SSHConfigParser;
 
-  constructor() {
+  constructor(options: { configPath?: string } = {}) {
     this.ssh = new NodeSSH();
-    this.configParser = new SSHConfigParser();
+    this.configParser = new SSHConfigParser(options.configPath);
   }
 
   /**
