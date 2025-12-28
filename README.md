@@ -40,6 +40,16 @@ npx @aiondadotcom/mcp-ssh --ssh-config /path/to/your/ssh_config
 SSH_CONFIG_PATH=/path/to/your/ssh_config npx @aiondadotcom/mcp-ssh
 ```
 
+### Reliability Features
+
+**Automatic Retry**: Network failures (timeout, connection reset, etc.) are automatically retried with exponential backoff (default: 2 retries).
+
+**Rate Limiting**: Built-in token bucket rate limiter prevents overwhelming servers (default: 10 requests/sec, burst 20). Configure via environment variables:
+
+```bash
+SSH_RATE_LIMIT=5 SSH_RATE_BURST=10 npx @aiondadotcom/mcp-ssh
+```
+
 ### Batch Execution (Multiple Hosts)
 
 When you manage many servers, you can run the same command across multiple hosts and get aggregated results via the MCP tool:

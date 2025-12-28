@@ -154,6 +154,91 @@ async function runWithConcurrency(items, limit, worker) {
   return results;
 }
 
+/**
+ * Retry wrapper with exponential backoff
+ * @param {Function} fn - Async function to retry
+ * @param {Object} options - Retry options
+ * @param {number} options.maxRetries - Max retry attempts (default: 3)
+ * @param {number} options.baseDelayMs - Base delay in ms (default: 1000)
+ * @param {number} options.maxDelayMs - Max delay cap in ms (default: 10000)
+ * @param {Function} options.shouldRetry - Function to determine if error is retryable
+ */
+async function withRetry(fn, options = {}) {
+  const maxRetries = options.maxRetries ?? 3;
+  const baseDelayMs = options.baseDelayMs ?? 1000;
+  const maxDelayMs = options.maxDelayMs ?? 10000;
+  const shouldRetry = options.shouldRetry ?? ((error) => {
+    // Retry on network/connection errors, not on auth failures
+    const retryablePatterns = [
+      'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENETUNREACH',
+      'Connection timed out', 'Connection refused', 'Network is unreachable',
+      'ssh_exchange_identification', 'Connection closed by remote host'
+    ];
+    const errorStr = String(error.message || error);
+    return retryablePatterns.some(p => errorStr.includes(p));
+  });
+
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt >= maxRetries || !shouldRetry(error)) {
+        throw error;
+      }
+      
+      // Exponential backoff with jitter
+      const delay = Math.min(baseDelayMs * Math.pow(2, attempt) + Math.random() * 500, maxDelayMs);
+      debugLog(`[RETRY] Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${Math.round(delay)}ms: ${error.message}\n`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Simple rate limiter using token bucket algorithm
+ */
+class RateLimiter {
+  constructor(options = {}) {
+    this.tokensPerSecond = options.tokensPerSecond ?? 10; // Max 10 requests per second
+    this.bucketSize = options.bucketSize ?? 20; // Burst capacity
+    this.tokens = this.bucketSize;
+    this.lastRefill = Date.now();
+  }
+
+  refill() {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefill) / 1000;
+    this.tokens = Math.min(this.bucketSize, this.tokens + elapsed * this.tokensPerSecond);
+    this.lastRefill = now;
+  }
+
+  async acquire(cost = 1) {
+    this.refill();
+    
+    if (this.tokens >= cost) {
+      this.tokens -= cost;
+      return;
+    }
+    
+    // Wait for tokens to be available
+    const waitTime = ((cost - this.tokens) / this.tokensPerSecond) * 1000;
+    debugLog(`[RATE_LIMIT] Waiting ${Math.round(waitTime)}ms for rate limit\n`);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+    this.refill();
+    this.tokens -= cost;
+  }
+}
+
+// Global rate limiter instance
+const rateLimiter = new RateLimiter({
+  tokensPerSecond: Number(process.env.SSH_RATE_LIMIT) || 10,
+  bucketSize: Number(process.env.SSH_RATE_BURST) || 20
+});
+
 // Debug logging function - only outputs in non-silent mode
 function debugLog(message) {
   if (!SILENT_MODE) {
@@ -474,13 +559,19 @@ class SSHClient {
     return await this.configParser.getAllKnownHosts();
   }
 
-  async runRemoteCommand(hostAlias, command) {
-    try {
+  async runRemoteCommand(hostAlias, command, options = {}) {
+    // Apply rate limiting
+    await rateLimiter.acquire();
+    
+    const maxRetries = options.maxRetries ?? 2;
+    const enableRetry = options.retry !== false && maxRetries > 0;
+    
+    const executeCommand = async () => {
       // Use execFile for security - prevents command injection
       debugLog(`Executing: ssh ${hostAlias} ${command}\n`);
       
       const { stdout, stderr } = await execFileAsync('ssh', [hostAlias, command], {
-        timeout: 30000, // 30 second timeout
+        timeout: options.timeoutMs || 30000, // 30 second timeout
         maxBuffer: 1024 * 1024 * 10 // 10MB buffer
       });
       
@@ -489,6 +580,14 @@ class SSHClient {
         stderr: stderr || '',
         code: 0
       };
+    };
+    
+    try {
+      if (enableRetry) {
+        return await withRetry(executeCommand, { maxRetries });
+      } else {
+        return await executeCommand();
+      }
     } catch (error) {
       debugLog(`Error executing command on ${hostAlias}: ${error.message}\n`);
       return {
@@ -523,28 +622,46 @@ class SSHClient {
     }
   }
 
-  async uploadFile(hostAlias, localPath, remotePath) {
-    try {
+  async uploadFile(hostAlias, localPath, remotePath, options = {}) {
+    await rateLimiter.acquire();
+    
+    const executeUpload = async () => {
       debugLog(`Executing: scp ${localPath} ${hostAlias}:${remotePath}\n`);
-      
       await execFileAsync('scp', [localPath, `${hostAlias}:${remotePath}`], { 
-        timeout: 60000 // 60 second timeout for file transfer
+        timeout: options.timeoutMs || 60000
       });
       return true;
+    };
+    
+    try {
+      const maxRetries = options.maxRetries ?? 2;
+      if (maxRetries > 0) {
+        return await withRetry(executeUpload, { maxRetries });
+      }
+      return await executeUpload();
     } catch (error) {
       debugLog(`Error uploading file to ${hostAlias}: ${error.message}\n`);
       return false;
     }
   }
 
-  async downloadFile(hostAlias, remotePath, localPath) {
-    try {
+  async downloadFile(hostAlias, remotePath, localPath, options = {}) {
+    await rateLimiter.acquire();
+    
+    const executeDownload = async () => {
       debugLog(`Executing: scp ${hostAlias}:${remotePath} ${localPath}\n`);
-      
       await execFileAsync('scp', [`${hostAlias}:${remotePath}`, localPath], { 
-        timeout: 60000 // 60 second timeout for file transfer
+        timeout: options.timeoutMs || 60000
       });
       return true;
+    };
+    
+    try {
+      const maxRetries = options.maxRetries ?? 2;
+      if (maxRetries > 0) {
+        return await withRetry(executeDownload, { maxRetries });
+      }
+      return await executeDownload();
     } catch (error) {
       debugLog(`Error downloading file from ${hostAlias}: ${error.message}\n`);
       return false;
@@ -582,9 +699,13 @@ class SSHClient {
     const useRsync = options.useRsync === true;
     const concurrency = Number.isFinite(options.concurrency) ? options.concurrency : 5;
     const timeoutMs = Number.isFinite(options.timeoutMs) ? options.timeoutMs : 120000; // 2 min default for file sync
+    const maxRetries = options.maxRetries ?? 2;
 
     const results = await runWithConcurrency(hostList, concurrency, async (hostAlias) => {
-      try {
+      // Apply rate limiting per host
+      await rateLimiter.acquire();
+      
+      const executeSyncToHost = async () => {
         if (useRsync) {
           // rsync mode: -avz for archive, verbose, compress
           const rsyncArgs = ['-avz', '--progress'];
@@ -612,6 +733,13 @@ class SSHClient {
             stderr: stderr || ''
           };
         }
+      };
+      
+      try {
+        if (maxRetries > 0) {
+          return await withRetry(executeSyncToHost, { maxRetries });
+        }
+        return await executeSyncToHost();
       } catch (error) {
         debugLog(`Error syncing file to ${hostAlias}: ${error.message}\n`);
         return {
