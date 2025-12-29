@@ -21,7 +21,7 @@ The easiest way to install MCP SSH Agent is through the Desktop Extension (.dxt)
 #### Installation via npx
 
 ```bash
-npx @aiondadotcom/mcp-ssh
+npx @laomeifun/mcp-ssh
 ```
 
 ### Use a Custom SSH Config File
@@ -31,13 +31,13 @@ By default, the server reads your SSH hosts from `~/.ssh/config`. If you maintai
 **Option A: CLI flag (highest priority)**
 
 ```bash
-npx @aiondadotcom/mcp-ssh --ssh-config /path/to/your/ssh_config
+npx @laomeifun/mcp-ssh --ssh-config /path/to/your/ssh_config
 ```
 
 **Option B: Environment variable**
 
 ```bash
-SSH_CONFIG_PATH=/path/to/your/ssh_config npx @aiondadotcom/mcp-ssh
+SSH_CONFIG_PATH=/path/to/your/ssh_config npx @laomeifun/mcp-ssh
 ```
 
 ### Reliability Features
@@ -47,7 +47,7 @@ SSH_CONFIG_PATH=/path/to/your/ssh_config npx @aiondadotcom/mcp-ssh
 **Rate Limiting**: Built-in token bucket rate limiter prevents overwhelming servers (default: 10 requests/sec, burst 20). Configure via environment variables:
 
 ```bash
-SSH_RATE_LIMIT=5 SSH_RATE_BURST=10 npx @aiondadotcom/mcp-ssh
+SSH_RATE_LIMIT=5 SSH_RATE_BURST=10 npx @laomeifun/mcp-ssh
 ```
 
 ### Batch Execution (Multiple Hosts)
@@ -116,7 +116,7 @@ To use this MCP server with Claude Desktop using manual configuration, add the f
     "mcp-ssh": {
       "command": "npx",
       "args": [
-        "@aiondadotcom/mcp-ssh",
+        "@laomeifun/mcp-ssh",
         "--ssh-config",
         "/path/to/your/ssh_config",
         "--ssh-groups",
@@ -131,7 +131,7 @@ After adding this configuration, restart Claude Desktop. The SSH tools will be a
 
 #### Global Installation
 ```bash
-npm install -g @aiondadotcom/mcp-ssh
+npm install -g @laomeifun/mcp-ssh
 ```
 
 #### Local Development
@@ -186,7 +186,7 @@ Here's how your Claude Desktop configuration should look:
   "mcpServers": {
     "mcp-ssh": {
       "command": "npx",
-      "args": ["@aiondadotcom/mcp-ssh"]
+      "args": ["@laomeifun/mcp-ssh"]
     }
   }
 }
@@ -201,7 +201,7 @@ If you prefer to run the server manually or integrate it with other MCP clients:
   "servers": {
     "mcp-ssh": {
       "command": "npx",
-      "args": ["@aiondadotcom/mcp-ssh"]
+      "args": ["@laomeifun/mcp-ssh"]
     }
   }
 }
@@ -231,7 +231,7 @@ The agent runs as a Model Context Protocol server over STDIO. When installed via
 
 ```bash
 # Run via npx (recommended)
-npx @aiondadotcom/mcp-ssh
+npx @laomeifun/mcp-ssh
 
 # Or if installed globally
 mcp-ssh
@@ -420,7 +420,7 @@ Run with debug output to see detailed operation logs:
 
 ```bash
 # Enable debug mode
-MCP_SILENT=false npx @aiondadotcom/mcp-ssh
+MCP_SILENT=false npx @laomeifun/mcp-ssh
 ```
 
 ## SSH Key Setup Guide

@@ -1,7 +1,7 @@
 {
-  "name": "@aiondadotcom/mcp-ssh",
-  "version": "1.1.0",
-  "description": "MCP Agent for managing SSH hosts - A Model Context Protocol server for SSH operations",
+  "name": "@laomeifun/mcp-ssh",
+  "version": "2.0.0",
+  "description": "Enhanced MCP SSH Agent - Batch execution, host grouping, file sync, retry & rate limiting",
   "main": "server-simple.mjs",
   "bin": {
     "mcp-ssh": "bin/mcp-ssh.js"
@@ -12,7 +12,7 @@
     "dev": "node server-simple.mjs",
     "build": "echo \"Build skipped\"",
     "build:dxt": "./scripts/build-dxt.sh",
-    "test": "echo \"No tests specified\" && exit 0",
+    "test": "node test-batch.mjs",
     "prepublishOnly": "npm run test",
     "version": "git add -A",
     "postversion": "git push && git push --tags"
@@ -25,17 +25,20 @@
     "claude",
     "ai",
     "remote",
-    "server"
+    "server",
+    "batch",
+    "sync",
+    "rsync"
   ],
-  "author": "aionda.com",
+  "author": "laomeifun (forked from aionda.com)",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aiondadotcom/mcp-ssh.git"
+    "url": "git+https://github.com/laomeifun/mcp-ssh.git"
   },
-  "homepage": "https://github.com/aiondadotcom/mcp-ssh",
+  "homepage": "https://github.com/laomeifun/mcp-ssh",
   "bugs": {
-    "url": "https://github.com/aiondadotcom/mcp-ssh/issues"
+    "url": "https://github.com/laomeifun/mcp-ssh/issues"
   },
   "publishConfig": {
     "access": "public"

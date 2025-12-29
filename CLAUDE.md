@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is MCP SSH Agent (@aiondadotcom/mcp-ssh) - a Model Context Protocol (MCP) server that provides SSH operations for AI assistants like Claude Desktop. The project uses native SSH commands (`ssh`, `scp`) rather than JavaScript SSH libraries for maximum reliability and compatibility.
+This is MCP SSH Agent (@laomeifun/mcp-ssh) - a Model Context Protocol (MCP) server that provides SSH operations for AI assistants like Claude Desktop. The project uses native SSH commands (`ssh`, `scp`) rather than JavaScript SSH libraries for maximum reliability and compatibility.
 
 ## Development Commands
 
@@ -69,14 +69,14 @@ Host discovery prioritizes SSH config entries first, then adds additional hosts 
 ### Manual Testing
 ```bash
 # Test as MCP server
-npx @aiondadotcom/mcp-ssh
+npx @laomeifun/mcp-ssh
 
 # Test with debug output
-MCP_SILENT=false npx @aiondadotcom/mcp-ssh
+MCP_SILENT=false npx @laomeifun/mcp-ssh
 
 # Test installation
 npm pack
-npm install -g ./aiondadotcom-mcp-ssh-*.tgz
+npm install -g ./laomeifun-mcp-ssh-*.tgz
 mcp-ssh
 ```
 
@@ -87,7 +87,7 @@ Configure in Claude Desktop's `claude_desktop_config.json`:
   "mcpServers": {
     "mcp-ssh": {
       "command": "npx",
-      "args": ["@aiondadotcom/mcp-ssh"]
+      "args": ["@laomeifun/mcp-ssh"]
     }
   }
 }

@@ -1,12 +1,12 @@
 # Publishing Instructions
 
-This document contains instructions for publishing the @aiondadotcom/mcp-ssh package to npm.
+This document contains instructions for publishing the @laomeifun/mcp-ssh package to npm.
 
 ## Prerequisites
 
-1. You need to be a member of the @aiondadotcom organization on npm
+1. You need to be a member of the @laomeifun organization on npm
 2. You need to be logged in to npm: `npm login`
-3. Verify your access: `npm access list packages @aiondadotcom`
+3. Verify your access: `npm access list packages @laomeifun`
 
 ## Publishing Process
 
@@ -40,13 +40,13 @@ git push origin main --tags
 ```bash
 # Test the package locally
 npm pack
-npm install -g ./aiondadotcom-mcp-ssh-1.0.0.tgz
+npm install -g ./laomeifun-mcp-ssh-1.0.0.tgz
 
 # Test the binary
 mcp-ssh --help
 
 # Clean up
-npm uninstall -g @aiondadotcom/mcp-ssh
+npm uninstall -g @laomeifun/mcp-ssh
 rm *.tgz
 ```
 
@@ -58,8 +58,8 @@ If this is the first time publishing this package:
 # Login to npm
 npm login
 
-# Verify you have access to the @aiondadotcom scope
-npm access list packages @aiondadotcom
+# Verify you have access to the @laomeifun scope
+npm access list packages @laomeifun
 
 # Publish the package
 npm publish --access public
@@ -68,7 +68,7 @@ npm publish --access public
 ## Package Configuration
 
 The package is configured with:
-- Scoped name: `@aiondadotcom/mcp-ssh`
+- Scoped name: `@laomeifun/mcp-ssh`
 - Public access
 - Binary: `mcp-ssh` command
 - Entry point: `server-simple.mjs`
