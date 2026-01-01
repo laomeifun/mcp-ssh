@@ -847,6 +847,7 @@ async function main() {
               type: "object",
               properties: {},
               required: [],
+              additionalProperties: false,
             },
           },
           {
@@ -865,6 +866,7 @@ async function main() {
                 },
               },
               required: ["hostAlias", "command"],
+              additionalProperties: false,
             },
           },
           {
@@ -879,6 +881,7 @@ async function main() {
                 },
               },
               required: ["hostAlias"],
+              additionalProperties: false,
             },
           },
           {
@@ -893,6 +896,7 @@ async function main() {
                 },
               },
               required: ["hostAlias"],
+              additionalProperties: false,
             },
           },
           {
@@ -915,6 +919,7 @@ async function main() {
                 },
               },
               required: ["hostAlias", "localPath", "remotePath"],
+              additionalProperties: false,
             },
           },
           {
@@ -937,6 +942,7 @@ async function main() {
                 },
               },
               required: ["hostAlias", "remotePath", "localPath"],
+              additionalProperties: false,
             },
           },
           {
@@ -956,6 +962,7 @@ async function main() {
                 },
               },
               required: ["hostAlias", "commands"],
+              additionalProperties: false,
             },
           },
           {
@@ -983,6 +990,7 @@ async function main() {
                 },
               },
               required: ["hosts", "command"],
+              additionalProperties: false,
             },
           },
           {
@@ -992,6 +1000,7 @@ async function main() {
               type: "object",
               properties: {},
               required: [],
+              additionalProperties: false,
             },
           },
           {
@@ -1018,6 +1027,7 @@ async function main() {
                 },
               },
               required: ["group", "command"],
+              additionalProperties: false,
             },
           },
           {
@@ -1057,6 +1067,7 @@ async function main() {
                 },
               },
               required: ["localPath", "remotePath", "hosts"],
+              additionalProperties: false,
             },
           },
           {
@@ -1095,6 +1106,7 @@ async function main() {
                 },
               },
               required: ["localPath", "remotePath", "group"],
+              additionalProperties: false,
             },
           },
         ],

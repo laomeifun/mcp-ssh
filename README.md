@@ -2,6 +2,16 @@
 
 A Model Context Protocol (MCP) server for managing and controlling SSH connections. This server integrates seamlessly with Claude Desktop and other MCP-compatible clients to provide AI-powered SSH operations.
 
+## 🌟 Cross-Platform AI Compatibility
+
+**Now fully compatible with multiple AI platforms:**
+
+- ✅ **OpenAI** (GPT-4, GPT-3.5-turbo) - Function calling
+- ✅ **Claude** (Anthropic) - Native MCP support
+- ✅ **Gemini** (Google) - Function calling
+
+All tool schemas follow strict JSON Schema standards with `additionalProperties: false` for maximum compatibility. See [CROSS_PLATFORM_GUIDE.md](CROSS_PLATFORM_GUIDE.md) for integration examples.
+
 ## Overview
 
 This MCP server provides SSH operations through a clean, standardized interface that can be used by MCP-compatible language models like Claude Desktop. The server automatically discovers SSH hosts from your `~/.ssh/config` and `~/.ssh/known_hosts` files and executes commands using native SSH tools for maximum reliability.

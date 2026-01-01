@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **COMPATIBILITY FIX**: Enhanced JSON Schema definitions for cross-platform AI compatibility
+- Added `additionalProperties: false` to all tool input schemas for strict validation
+- Fixed OpenAI function calling compatibility issues
+- Ensured schema compatibility with OpenAI, Claude (Anthropic), and Gemini (Google)
+- All 12 MCP tools now have robust, strictly-validated schemas
+
+### Documentation
+- Added `SCHEMA_IMPROVEMENTS.md` documenting schema enhancements and best practices
+- Added schema validation test script (`test-schema-validation.mjs`)
+
 ## [1.1.0] - 2025-08-17
 
 ### Added
